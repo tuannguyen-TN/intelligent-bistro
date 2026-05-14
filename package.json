@@ -1,0 +1,17 @@
+{
+  "name": "intelligent-bistro",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "api": "yarn workspace @bistro/api dev",
+    "mobile": "yarn workspace @bistro/mobile start",
+    "dev": "concurrently -n api,mobile -c blue,magenta \"yarn api\" \"yarn mobile\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
