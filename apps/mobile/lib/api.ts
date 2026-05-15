@@ -1,12 +1,11 @@
 import Constants from 'expo-constants'
 import type { CartItem, ChatRequest, ChatResponse, MenuItem } from '@bistro/shared'
+import { env } from './utils'
 
-// In dev, derive the API host from the Expo dev server address (hostUri),
-// so it tracks your machine's IP automatically when you switch networks.
-// extra.apiUrl is an explicit override for when the API runs elsewhere.
+// env.apiUrl (from .env or app.json) is an explicit override; when blank,
+// derive the host from the Expo dev server so it tracks your machine's IP.
 function resolveApiUrl(): string {
-  const override = (Constants.expoConfig?.extra as { apiUrl?: string } | undefined)?.apiUrl
-  if (override) return override
+  if (env.apiUrl) return env.apiUrl
 
   const hostUri = Constants.expoConfig?.hostUri
   if (hostUri) return `http://${hostUri.split(':')[0]}:4000`

@@ -3,7 +3,7 @@
 A high-fidelity mobile experience where an AI assistant manages restaurant ordering.
 
 - **Mobile**: Expo (React Native) + NativeWind, Zustand for state, Expo Router for navigation, Reanimated for sheet animations.
-- **Backend**: Fastify (Node.js + TypeScript). The `/chat` endpoint currently uses a deterministic local parser so the demo runs without any API key; the contract it returns (`{ reply, actions[] }`) matches what a Claude tool-use call will return, so dropping in the Anthropic SDK later is a one-file swap inside `apps/api/src/parser.ts`.
+- **Backend**: Fastify (Node.js + TypeScript). The `/chat` endpoint is powered by Google Gemini with function calling; when no API key is set it falls back to a deterministic local parser so the demo still runs. Both paths return the same contract (`{ reply, actions[] }`), so the mobile app is agnostic to which brain answered.
 - **Shared**: `packages/shared` holds the `MenuItem`, `CartItem`, `CartAction`, `ChatRequest`, `ChatResponse` types used by both ends.
 
 ## Prerequisites
@@ -11,19 +11,22 @@ A high-fidelity mobile experience where an AI assistant manages restaurant order
 - Node 20+
 - `yarn` (this repo uses yarn workspaces — `npm`/`pnpm` will not install correctly)
 - The Expo Go app on a phone, or an iOS Simulator / Android emulator
+- (Optional) A Google Gemini API key — without it the chat uses the local parser fallback
 
 ## First-time setup
 
 ```bash
 yarn install
-cp apps/api/.env.example apps/api/.env   # placeholder values are fine for now
+cp apps/api/.env.example apps/api/.env
 ```
 
-When you wire in the real Claude API, replace `ANTHROPIC_API_KEY` in `apps/api/.env`.
+To enable the real LLM, set `GEMINI_API_KEY` in `apps/api/.env`. Leaving it blank is fine — `/chat` falls back to the deterministic parser. `GEMINI_MODEL` defaults to `gemini-2.5-flash`.
 
 ### Pointing the mobile app at the backend
 
-If you run the app on a physical device, `localhost` on the phone refers to the phone itself. Edit `apps/mobile/app.json` and set `expo.extra.apiUrl` to your machine's LAN IP, e.g. `http://192.168.1.42:4000`. The Expo Simulator/emulator can use `localhost` as-is.
+The mobile app auto-detects the backend: it reads the Expo dev server's host (the address your phone already uses to load the JS bundle) and talks to port 4000 on the same machine. On a physical device or simulator on the same network this just works with no config, and it keeps working when you switch networks.
+
+To point at a backend on a different machine, set `expo.extra.apiUrl` in `apps/mobile/app.json` (e.g. `http://192.168.1.42:4000`); when set, it takes priority over auto-detection.
 
 ## Running
 
@@ -49,7 +52,7 @@ The API listens on `http://localhost:4000`. The Expo dev server prints a QR code
 
 - `GET /health` — liveness check.
 - `GET /menu` — returns `{ items: MenuItem[] }`.
-- `POST /chat` — body `{ message: string, cart: CartItem[] }`, returns `{ reply: string, actions: CartAction[], unmatched?: string[] }`.
+- `POST /chat` — body `{ message: string, cart: CartItem[], history?: { role, content }[] }`, returns `{ reply: string, actions: CartAction[], unmatched?: string[] }`. `history` is the prior conversation turns, replayed so the LLM has context across messages.
 
 `CartAction` is one of `add_item`, `remove_item`, `update_quantity`, or `clear_cart`. The mobile app's Zustand store applies any returned actions identically whether they came from the AI or a UI tap, so there is one source of truth for cart mutations.
 
@@ -62,14 +65,18 @@ Open the chat overlay (the **Ask AI** button) and try:
 - "Remove the salad"
 - "Clear my cart"
 
+With a Gemini key set, follow-ups work too — "make the first one extra spicy", "actually add one more".
+
 ## Project layout
 
 ```
 apps/
   api/                 Fastify backend
     src/
+      ai/gemini.ts     Gemini integration (function calling → CartActions)
       data/menu.ts     Bistro menu (seed data)
-      parser.ts        NL → CartAction parser (swap for Claude tool use)
+      parser.ts        Deterministic NL → CartAction parser (fallback)
+      utils.ts         Centralized env config
       index.ts         Fastify server
   mobile/              Expo app
     app/               Expo Router routes
@@ -79,12 +86,11 @@ packages/
   shared/              Shared TypeScript types
 ```
 
-## Swapping in Claude
+## How the AI chat works
 
-`apps/api/src/parser.ts` exports `parseUserMessage(message, cart) → ChatResponse`. Replace its body with an Anthropic SDK call using tool use:
+`/chat` chooses its brain at request time based on whether `GEMINI_API_KEY` is set (the `hasGemini` flag in `apps/api/src/utils.ts`):
 
-1. Define tools matching the `CartAction` discriminated union: `add_item`, `remove_item`, `update_quantity`, `clear_cart`.
-2. Pass the menu (`MENU`) and current cart in the system prompt so the model can ground item names and modifiers.
-3. Map each returned `tool_use` block into a `CartAction` and return them as the `actions` array, with the text block as `reply`.
+- **With a key** — `apps/api/src/ai/gemini.ts` calls Gemini with four function declarations mirroring the `CartAction` union (`add_item`, `remove_item`, `update_quantity`, `clear_cart`). The current menu and cart are serialized into the system instruction so the model can ground item names, modifiers, and cart line ids. Returned function calls are validated against the real menu and cart — hallucinated ids are dropped — and mapped to `CartAction`s; the model's text becomes `reply`. Conversation `history` is replayed on every call so the assistant remembers earlier turns. If the Gemini call throws (bad key, quota, network), `/chat` logs it and falls back to the parser.
+- **Without a key** — `apps/api/src/parser.ts` (`parseUserMessage`) handles the message with heuristic matching. It is stateless and ignores `history`.
 
-Nothing else needs to change — the mobile app already speaks this contract.
+Because both return the identical `{ reply, actions[] }` contract, nothing on the mobile side cares which one ran.
