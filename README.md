@@ -1,5 +1,7 @@
 # The Intelligent Bistro
 
+Backend URL: [](https://intelligent-bistro.onrender.com)
+
 A high-fidelity mobile experience where an AI assistant manages restaurant ordering.
 
 - **Mobile**: Expo (React Native) + NativeWind, Zustand for state, Expo Router for navigation, Reanimated for sheet animations.
