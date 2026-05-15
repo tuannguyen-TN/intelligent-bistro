@@ -1,6 +1,6 @@
 # The Intelligent Bistro
 
-Backend URL: [](https://intelligent-bistro.onrender.com)
+Backend URL: ()[https://intelligent-bistro.onrender.com]
 
 A high-fidelity mobile experience where an AI assistant manages restaurant ordering.
 
